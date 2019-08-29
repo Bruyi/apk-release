@@ -1,0 +1,120 @@
+#include <Servo.h>
+Servo myservo;
+#include <SPI.h>             //библиотека для работы с SPI
+#include <Ethernet.h>        //библиотека для работы с Ethernet 
+boolean newInfo = 0;        //переменная для новой информации
+//MAC адрес вашего Ethernet-модуля, если его у вас нет, введите любой
+//или оставьте тот, что в примере
+byte mac[] = { 0x2C, 0xF7, 0xF1, 0x08, 0x0A, 0x45 };
+byte ip[] = { 192.168.0.3 }; //указываем IP адрес
+
+//инициализация библиотеки Ethernet server library
+EthernetServer server(80);
+
+void setup()
+{
+  pinMode(8, OUTPUT);       //инициализируем 8 пин как выход для реле1
+  pinMode(7, OUTPUT);        //инициализируем 7 пин как выход для реле2
+  myservo.attach(9);
+  Ethernet.begin(mac);   //запускаем сервер с указанными ранее MAC и IP
+  server.begin();
+  Serial.begin(9600);
+  while (!Serial) {
+  ;                                            // ожидаем подключения порта
+  }
+
+  // Инициализация подключения
+  if (Ethernet.begin(mac) == 0) {
+    Serial.println("Failed to configure Ethernet using DHCP");
+    Ethernet.begin(mac, ip);
+  }
+  else {
+    Serial.println("подключение по DHCP выполнено");
+  }
+  //  delay(2000);
+  Serial.println("подключение...");
+
+  // вывод на монитор порта IP-адреса Ethernet Shield`а:
+  Serial.print("My IP address: ");
+  Serial.println(Ethernet.localIP());
+}
+
+void loop()
+{
+   //принимаем данные, посылаемые клиентом
+  EthernetClient client = server.available();
+  if (client) {                              //если запрос оканчивается пустой строкой
+    boolean currentLineIsBlank = true; //ставим метку об окончании запроса (дословно: текущая строка чиста)
+    while (client.connected()) {                      //пока есть соединение с клиентом
+      if (client.available()) {                       //если клиент активен
+        char c = client.read();  //считываем посылаемую информацию в переменную "с"
+        Serial.print(c);
+        if (newInfo && c == ' ') {      //если переменная новой информации = 1 и "с", в которой записан запрос, равен пустой строке
+          newInfo = 0;   //то обнуляем переменную поступления новой информации
+        }
+
+        if (c == '$') {     //если переменная "с", несущая отправленный нам запрос, содержит символ $
+//(все новые запросы) - "$" подразумевает разделение получаемой информации (символов)
+          newInfo = 1;   //то пришла новая информация, ставим метку новой информации в 1
+        }
+        if (newInfo == 1) {                            //если есть новая информация
+          Serial.println(c);
+          if (c == '1') {                            //и "с" содержит 1
+            Serial.println("RELAY IS ON");
+            digitalWrite(7, LOW);                      //замыкаем реле
+          }
+          if (c == '2') {                            //если "с" содержит 2
+            Serial.println("RELAY IS OFF");
+            digitalWrite(7, HIGH);                     //размыкаем реле
+          }
+          if (c == '3') {                           //если "с" содержит 3
+            Serial.println("SERVO IS 0");
+            myservo.write(10);                     //Повернуть серву в 10`
+          }
+          if (c == '4') {                           //если "с" содержит 4
+            Serial.println("SERVO IS 90");
+            myservo.write(100);                     //Повернуть серву в 100`
+          }
+          if (c == '5') {                           //если "с" содержит 3
+            Serial.println("MOTION IS ON");
+            digitalWrite(8, LOW);                     //запустить двигатель
+          }
+          if (c == '6') {                           //если "с" содержит 4
+            Serial.println("MOTION IS OFF");
+            digitalWrite(8, HIGH);                     //остновить двигатель
+          }
+        }
+        if (c == '\n') {                              //если "с" равен символу новой строки
+          currentLineIsBlank = true;                  //то начинаем новую строку
+        }
+        else if (c != '\r') {                         //иначе, если "с" не равен символу возврата курсора на начало строки(дальнейшее формирование запроса)
+          currentLineIsBlank = false;                 //то получаем символ на текущей строке
+        }
+        if (c == '\n' && currentLineIsBlank) {        //выводим HTML страницу
+          client.println("HTTP/1.1 200 OK");          //заголовочная информация
+          client.println("Content-Type: text/html");
+          client.println("Connection: close");
+          client.println("Refresh: 30");              //автоматическое обновление каждые 30 сек
+          client.println();
+          client.println("<!DOCTYPE HTML>");          //HTML тип документа
+          client.println("<html>");                   //открытие тега HTML
+          client.print("<BODY BGCOLOR=#ed9121>");
+          client.print("<title>My web Server</title>");                                            //название страницы
+          client.print("<CENTER><H1>Web Server</H1></CENTER>");                                    //заголовк на странице
+          client.print("<a href=\"/$1\"><CENTER><button>Relay is on</button></CENTER></a>");       //кнопка включить освещение
+          client.print("<a href=\"/$2\"><CENTER><button>Relay is off</button></CENTER></a>");      //кнопка выключить освещение
+          client.print("<a href=\"/$3\"><CENTER><button>Servo is 0`</button></CENTER></a>");       //кнопка серво
+          client.print("<a href=\"/$4\"><CENTER><button>Servo is 90`</button></CENTER></a>");      //кнопка серво
+          client.print("<a href=\"/$5\"><CENTER><button>Motion is on</button></CENTER></a>");      //кнопка включить мотор
+          client.print("<a href=\"/$6\"><CENTER><button>Motion is off</button></CENTER></a>");     //кнопка выключить мотор
+          client.print("<MARQUEE DIRECTION=right >WEB SERVER ARDUINO</MARQUEE>");
+          client.println("<br />");
+          client.println("</html>");                  //закрываем тег HTML
+          break;                                      //выход
+        }
+      }
+    }
+    delay(1);                                          //время на получение новых данных
+    client.stop();                                     //закрываем соеднение
+  }
+}
